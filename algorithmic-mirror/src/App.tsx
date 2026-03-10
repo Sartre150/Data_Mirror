@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Landing from './views/Landing'
-import Dashboard from './views/Dashboard' // Importamos el nuevo componente
+import Dashboard from './views/Dashboard' 
 import type { SpotifyData } from './types/spotify'
 
 function App() {
