@@ -163,6 +163,15 @@ export default function Landing({ onDataLoaded }: Props) {
             <WifiOff className="w-3.5 h-3.5 text-spotify" /> Funciona sin internet
           </span>
         </motion.div>
+
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1 }}
+          className="mt-6 text-[11px] text-gray-600"
+        >
+          Proyecto creado para la clase de <span className="text-gray-400">Ética e Inteligencia Artificial</span>
+        </motion.p>
       </motion.div>
     </div>
   );

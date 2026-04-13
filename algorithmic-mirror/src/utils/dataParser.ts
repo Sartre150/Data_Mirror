@@ -121,6 +121,100 @@ export function getDateRange(music: StreamingHistoryMusic[], podcasts: Streaming
 }
 
 // ==========================================
+// Heatmaps y análisis avanzados (del profesor)
+// ==========================================
+
+/** Heatmap: Día de la semana × Hora del día (reproducciones) */
+export function getHeatmapDayHour(items: StreamingHistoryMusic[]) {
+  const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  const matrix: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  for (const i of items) {
+    const d = new Date(i.endTime);
+    if (isNaN(d.getTime())) continue;
+    const dayIdx = (d.getDay() + 6) % 7; // Lun=0 … Dom=6
+    matrix[dayIdx][d.getHours()]++;
+  }
+  return { days, matrix };
+}
+
+/** Heatmap: Top N artistas × Hora del día */
+export function getArtistsByHour(items: StreamingHistoryMusic[], limit = 20) {
+  const counts = new Map<string, number>();
+  for (const i of items) counts.set(i.artistName, (counts.get(i.artistName) ?? 0) + 1);
+  const artists = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([n]) => n);
+
+  const matrix: number[][] = Array.from({ length: artists.length }, () => new Array(24).fill(0));
+  for (const i of items) {
+    const idx = artists.indexOf(i.artistName);
+    if (idx === -1) continue;
+    const d = new Date(i.endTime);
+    if (!isNaN(d.getTime())) matrix[idx][d.getHours()]++;
+  }
+  return { artists, matrix };
+}
+
+/** Heatmap: Top N artistas × Día de la semana */
+export function getArtistsByDay(items: StreamingHistoryMusic[], limit = 20) {
+  const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  const counts = new Map<string, number>();
+  for (const i of items) counts.set(i.artistName, (counts.get(i.artistName) ?? 0) + 1);
+  const artists = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([n]) => n);
+
+  const matrix: number[][] = Array.from({ length: artists.length }, () => new Array(7).fill(0));
+  for (const i of items) {
+    const idx = artists.indexOf(i.artistName);
+    if (idx === -1) continue;
+    const d = new Date(i.endTime);
+    if (!isNaN(d.getTime())) matrix[idx][(d.getDay() + 6) % 7]++;
+  }
+  return { artists, days, matrix };
+}
+
+/** Top N artistas por mes (para line chart) */
+export function getTopArtistsByMonth(items: StreamingHistoryMusic[], limit = 5) {
+  const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const totals = new Map<string, number>();
+  for (const i of items) totals.set(i.artistName, (totals.get(i.artistName) ?? 0) + 1);
+  const artists = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([n]) => n);
+
+  const monthlyMap = new Map<string, Map<string, number>>();
+  const seen = new Set<string>();
+  const monthOrder: string[] = [];
+
+  for (const i of items) {
+    const d = new Date(i.endTime);
+    if (isNaN(d.getTime())) continue;
+    const key = `${monthNames[d.getMonth()]} '${d.getFullYear().toString().slice(-2)}`;
+    if (!seen.has(key)) { seen.add(key); monthOrder.push(key); }
+    if (!monthlyMap.has(key)) monthlyMap.set(key, new Map());
+    if (artists.includes(i.artistName)) {
+      const m = monthlyMap.get(key)!;
+      m.set(i.artistName, (m.get(i.artistName) ?? 0) + 1);
+    }
+  }
+
+  const data = monthOrder.map(month => {
+    const entry: Record<string, string | number> = { month };
+    const aMap = monthlyMap.get(month)!;
+    for (const a of artists) entry[a] = aMap.get(a) ?? 0;
+    return entry;
+  });
+  return { data, artists };
+}
+
+/** Historial filtrado por una fecha específica */
+export function getHistoryByDate(items: StreamingHistoryMusic[], dateStr: string) {
+  const t = new Date(dateStr);
+  if (isNaN(t.getTime())) return [];
+  return items
+    .filter(i => {
+      const d = new Date(i.endTime);
+      return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+    })
+    .sort((a, b) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime());
+}
+
+// ==========================================
 // Parser — mapea nombres de archivo a keys
 // ==========================================
 

@@ -1,19 +1,21 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   User, Tag as TagIcon, Activity, LogOut, Brain, Search, Clock, Music,
   Heart, ListMusic, Library, Podcast, CreditCard, Star, Globe, Users, Fingerprint, Radio,
-  Eye, ShieldOff, Scan, Package, Smartphone, Target
+  Eye, ShieldOff, Scan, Package, Smartphone, Target, Download, Grid3X3, TrendingUp, CalendarDays, ExternalLink
 } from 'lucide-react';
 import type { SpotifyData, StreamingHistoryMusic, StreamingHistoryPodcast, SearchQuery,
   Playlist, YourLibrary, Follow, Wrapped, MarqueeItem, PodcastRatedShow } from '../types/spotify';
 import { Card, CardHeader, BigStat, MiniStat, ProgressBar, Tag } from '../components/ui/Card';
-import { HorizontalBarChart, HourlyChart, WeekRadar, MonthlyArea } from '../components/visualizations/Charts';
+import { HorizontalBarChart, HourlyChart, WeekRadar, MonthlyArea, HeatmapGrid, ArtistEvolutionChart, DownloadableChart } from '../components/visualizations/Charts';
 import { CorporateInsight } from '../components/ui/CorporateInsight';
 import {
   getTotalHours, getTopArtists, getTopTracks, getUniqueTracks, getUniqueArtists,
-  getListeningByHour, getListeningByDay, getListeningByMonth, msToHours, getDateRange
+  getListeningByHour, getListeningByDay, getListeningByMonth, msToHours, getDateRange,
+  getHeatmapDayHour, getArtistsByHour, getArtistsByDay, getTopArtistsByMonth, getHistoryByDate
 } from '../utils/dataParser';
+import { downloadSummaryReport } from '../utils/reportGenerator';
 
 interface Props {
   data: SpotifyData;
@@ -79,6 +81,35 @@ export default function Dashboard({ data, onReset }: Props) {
   const uniquePodcasts = useMemo(() => new Set(podcastHistory.map(p => p.podcastName)).size, [podcastHistory]);
 
   const totalPlaylistTracks = useMemo(() => playlists.reduce((s, p) => s + p.items.length, 0), [playlists]);
+
+  // Nuevos cálculos (del profesor)
+  const heatmapDayHour = useMemo(() => getHeatmapDayHour(musicHistory), [musicHistory]);
+  const artistsByHour = useMemo(() => getArtistsByHour(musicHistory, 15), [musicHistory]);
+  const artistsByDay = useMemo(() => getArtistsByDay(musicHistory, 15), [musicHistory]);
+  const artistEvolution = useMemo(() => getTopArtistsByMonth(musicHistory, 5), [musicHistory]);
+
+  // Estado para búsqueda por fecha
+  const [lookupDate, setLookupDate] = useState('');
+  const dateResults = useMemo(() => lookupDate ? getHistoryByDate(musicHistory, lookupDate) : [], [musicHistory, lookupDate]);
+
+  // Google Trends
+  const [trendsKeywords, setTrendsKeywords] = useState<string[]>([]);
+  const [trendsCustom, setTrendsCustom] = useState('');
+  const trendsTopArtists = useMemo(() => topArtists.slice(0, 10).map(a => a.name), [topArtists]);
+
+  const openGoogleTrends = useCallback(() => {
+    const kws = [...trendsKeywords];
+    if (trendsCustom.trim()) kws.push(trendsCustom.trim());
+    if (kws.length === 0) return;
+    const q = kws.slice(0, 5).map(k => encodeURIComponent(k)).join(',');
+    window.open(`https://trends.google.com/trends/explore?q=${q}&date=today%2012-m`, '_blank', 'noopener');
+  }, [trendsKeywords, trendsCustom]);
+
+  const toggleTrendsKeyword = useCallback((kw: string) => {
+    setTrendsKeywords(prev =>
+      prev.includes(kw) ? prev.filter(k => k !== kw) : prev.length < 5 ? [...prev, kw] : prev
+    );
+  }, []);
 
   // Wrapped party stats
   const party = wrapped?.party;
@@ -214,6 +245,17 @@ export default function Dashboard({ data, onReset }: Props) {
           </button>
         </div>
 
+        {/* BOTÓN DE DESCARGA DE RESUMEN */}
+        <div className="max-w-7xl mx-auto px-4 md:px-6 pb-2 flex justify-end">
+          <button
+            onClick={() => downloadSummaryReport(data)}
+            className="flex items-center gap-2 text-xs text-gray-400 hover:text-spotify transition-colors px-3 py-1.5 border border-gray-700/50 rounded-lg hover:border-spotify/50 bg-gray-800/30"
+          >
+            <Download size={13} />
+            Descargar Resumen Completo (.txt)
+          </button>
+        </div>
+
         {/* TABS DE FASES */}
         <div className="max-w-7xl mx-auto px-4 md:px-6 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
           {phases.map((p) => (
@@ -312,8 +354,10 @@ export default function Dashboard({ data, onReset }: Props) {
                 {topArtists.length > 0 && (
                   <motion.div variants={fadeUp} className="lg:col-span-2">
                     <Card>
-                      <CardHeader icon={<Music size={20} />} title="Tus Artistas Más Escuchados" color="text-green-400" />
-                      <HorizontalBarChart data={topArtists.map(a => ({ name: a.name, value: a.hours }))} />
+                      <DownloadableChart filename="top_artistas">
+                        <CardHeader icon={<Music size={20} />} title="Tus Artistas Más Escuchados" color="text-green-400" />
+                        <HorizontalBarChart data={topArtists.map(a => ({ name: a.name, value: a.hours }))} />
+                      </DownloadableChart>
                     </Card>
                   </motion.div>
                 )}
@@ -322,8 +366,54 @@ export default function Dashboard({ data, onReset }: Props) {
                 {topTracks.length > 0 && (
                   <motion.div variants={fadeUp} className="lg:col-span-2">
                     <Card>
-                      <CardHeader icon={<Star size={20} />} title="Tus Canciones Más Escuchadas" color="text-yellow-400" />
-                      <TopTracksList tracks={topTracks} />
+                      <DownloadableChart filename="top_canciones">
+                        <CardHeader icon={<Star size={20} />} title="Tus Canciones Más Escuchadas" color="text-yellow-400" />
+                        <TopTracksList tracks={topTracks} />
+                      </DownloadableChart>
+                    </Card>
+                  </motion.div>
+                )}
+
+                {/* Búsqueda por fecha — Del Profesor */}
+                {musicHistory.length > 0 && (
+                  <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
+                    <Card>
+                      <CardHeader icon={<CalendarDays size={20} />} title="¿Qué Escuchaste un Día Específico?" color="text-amber-400" />
+                      <div className="flex flex-wrap items-center gap-3 mb-4">
+                        <input
+                          type="date"
+                          value={lookupDate}
+                          onChange={(e) => setLookupDate(e.target.value)}
+                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-spotify focus:outline-none"
+                        />
+                        {lookupDate && (
+                          <span className="text-sm text-gray-400">
+                            {dateResults.length} reproducciones encontradas
+                          </span>
+                        )}
+                      </div>
+                      {dateResults.length > 0 && (
+                        <DownloadableChart filename={`escuchas_${lookupDate}`}>
+                          <div className="max-h-[320px] overflow-y-auto pr-1 space-y-1">
+                            {dateResults.map((item, i) => {
+                              const time = new Date(item.endTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                              return (
+                                <div key={i} className="flex items-center gap-3 py-1.5 border-b border-gray-800/50">
+                                  <span className="text-xs font-mono text-gray-600 w-12 shrink-0">{time}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-gray-200 truncate">{item.trackName}</p>
+                                    <p className="text-xs text-gray-500 truncate">{item.artistName}</p>
+                                  </div>
+                                  <span className="text-xs text-gray-600 shrink-0">{Math.round(item.msPlayed / 60000)}min</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </DownloadableChart>
+                      )}
+                      {lookupDate && dateResults.length === 0 && (
+                        <p className="text-sm text-gray-600 italic">No se encontraron reproducciones para esta fecha.</p>
+                      )}
                     </Card>
                   </motion.div>
                 )}
@@ -448,9 +538,11 @@ export default function Dashboard({ data, onReset }: Props) {
                   <>
                     <motion.div variants={fadeUp} className="lg:col-span-2">
                       <Card>
-                        <CardHeader icon={<Clock size={20} />} title="¿A Qué Hora Escuchas?" color="text-cyan-400" />
-                        <p className="text-xs text-gray-500 mb-3">Actividad acumulada por hora del día</p>
-                        <HourlyChart data={hourlyData} />
+                        <DownloadableChart filename="actividad_por_hora">
+                          <CardHeader icon={<Clock size={20} />} title="¿A Qué Hora Escuchas?" color="text-cyan-400" />
+                          <p className="text-xs text-gray-500 mb-3">Actividad acumulada por hora del día</p>
+                          <HourlyChart data={hourlyData} />
+                        </DownloadableChart>
                         <CorporateInsight
                           title="Behavioral Timing Patterns"
                           description="Tu horario de escucha revela tu rutina diaria: cuándo despiertas, cuándo comes, cuándo entrenas, cuándo te acuestas. Los anunciantes pagan premium por 'daypart targeting' — saber la hora exacta en que eres más susceptible a ciertos mensajes. Tu pico de las 2AM es oro puro para ads de comida rápida."
@@ -460,17 +552,92 @@ export default function Dashboard({ data, onReset }: Props) {
 
                     <motion.div variants={fadeUp}>
                       <Card>
-                        <CardHeader icon={<Radio size={20} />} title="Días de la Semana" color="text-emerald-400" />
-                        <WeekRadar data={weeklyData} />
+                        <DownloadableChart filename="dias_semana">
+                          <CardHeader icon={<Radio size={20} />} title="Días de la Semana" color="text-emerald-400" />
+                          <WeekRadar data={weeklyData} />
+                        </DownloadableChart>
                       </Card>
                     </motion.div>
 
                     <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
                       <Card>
-                        <CardHeader icon={<Activity size={20} />} title="Evolución Mensual" color="text-indigo-400" />
-                        <MonthlyArea data={monthlyData} />
+                        <DownloadableChart filename="evolucion_mensual">
+                          <CardHeader icon={<Activity size={20} />} title="Evolución Mensual" color="text-indigo-400" />
+                          <MonthlyArea data={monthlyData} />
+                        </DownloadableChart>
                       </Card>
                     </motion.div>
+
+                    {/* === NUEVAS VISUALIZACIONES DEL PROFESOR === */}
+
+                    {/* Heatmap Día × Hora */}
+                    <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
+                      <Card>
+                        <DownloadableChart filename="heatmap_dia_hora">
+                          <CardHeader icon={<Grid3X3 size={20} />} title="Mapa de Calor: Actividad por Día y Hora" color="text-orange-400" />
+                          <p className="text-xs text-gray-500 mb-3">Cada celda muestra cuántas reproducciones tuviste en esa combinación de día/hora</p>
+                          <HeatmapGrid
+                            rowLabels={heatmapDayHour.days}
+                            colLabels={Array.from({ length: 24 }, (_, i) => `${i}h`)}
+                            matrix={heatmapDayHour.matrix}
+                            colorScale="green"
+                          />
+                        </DownloadableChart>
+                        <CorporateInsight
+                          title="Mapa Completo de Tu Rutina"
+                          description="Este heatmap revela con precisión milimétrica tu rutina semanal completa. Los anunciantes pagan premium por saber que los martes a las 8AM estás en el transporte (ads de comida rápida) y los sábados a las 11PM estás de fiesta (ads de alcohol). Cada celda verde es un 'slot' vendible."
+                        />
+                      </Card>
+                    </motion.div>
+
+                    {/* Heatmap Artista × Hora */}
+                    {artistsByHour.artists.length > 0 && (
+                      <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
+                        <Card>
+                          <DownloadableChart filename="heatmap_artistas_hora">
+                            <CardHeader icon={<Grid3X3 size={20} />} title="TOP 15 — Artistas por Hora del Día" color="text-cyan-400" />
+                            <p className="text-xs text-gray-500 mb-3">¿A qué hora escuchas a cada artista?</p>
+                            <HeatmapGrid
+                              rowLabels={artistsByHour.artists}
+                              colLabels={Array.from({ length: 24 }, (_, i) => `${i}`)}
+                              matrix={artistsByHour.matrix}
+                              colorScale="green"
+                            />
+                          </DownloadableChart>
+                        </Card>
+                      </motion.div>
+                    )}
+
+                    {/* Heatmap Artista × Día */}
+                    {artistsByDay.artists.length > 0 && (
+                      <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
+                        <Card>
+                          <DownloadableChart filename="heatmap_artistas_dia">
+                            <CardHeader icon={<Grid3X3 size={20} />} title="TOP 15 — Artistas por Día de la Semana" color="text-blue-400" />
+                            <p className="text-xs text-gray-500 mb-3">¿Qué días escuchas más a cada artista?</p>
+                            <HeatmapGrid
+                              rowLabels={artistsByDay.artists}
+                              colLabels={artistsByDay.days}
+                              matrix={artistsByDay.matrix}
+                              colorScale="blue"
+                            />
+                          </DownloadableChart>
+                        </Card>
+                      </motion.div>
+                    )}
+
+                    {/* Evolución Top 5 Artistas por Mes */}
+                    {artistEvolution.data.length > 0 && (
+                      <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
+                        <Card>
+                          <DownloadableChart filename="evolucion_top5_artistas">
+                            <CardHeader icon={<TrendingUp size={20} />} title="Top 5 Artistas — Evolución por Mes" color="text-violet-400" />
+                            <p className="text-xs text-gray-500 mb-3">¿Cómo ha cambiado tu gusto musical con el tiempo?</p>
+                            <ArtistEvolutionChart data={artistEvolution.data} artists={artistEvolution.artists} />
+                          </DownloadableChart>
+                        </Card>
+                      </motion.div>
+                    )}
                   </>
                 )}
 
@@ -834,6 +1001,60 @@ export default function Dashboard({ data, onReset }: Props) {
                   </motion.div>
                 )}
 
+                {/* Google Trends — Del Profesor */}
+                {topArtists.length > 0 && (
+                  <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
+                    <Card>
+                      <CardHeader icon={<TrendingUp size={20} />} title="Google Trends — Tus Artistas en el Mundo" color="text-sky-400" />
+                      <p className="text-sm text-gray-400 mb-4">
+                        Selecciona hasta 5 de tus artistas más escuchados para comparar su popularidad en Google Trends. También puedes agregar palabras clave propias.
+                      </p>
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {trendsTopArtists.map((name) => (
+                          <button
+                            key={name}
+                            onClick={() => toggleTrendsKeyword(name)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                              trendsKeywords.includes(name)
+                                ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                                : 'bg-gray-800/50 border-gray-700/50 text-gray-400 hover:border-gray-600'
+                            }`}
+                          >
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 mb-4">
+                        <input
+                          type="text"
+                          value={trendsCustom}
+                          onChange={(e) => setTrendsCustom(e.target.value)}
+                          placeholder="Palabra clave personalizada..."
+                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-sky-400 focus:outline-none flex-1 min-w-[200px]"
+                          onKeyDown={(e) => e.key === 'Enter' && openGoogleTrends()}
+                        />
+                        <button
+                          onClick={openGoogleTrends}
+                          disabled={(trendsKeywords.length === 0 && !trendsCustom.trim())}
+                          className="flex items-center gap-2 px-4 py-2 bg-sky-500/20 hover:bg-sky-500/30 disabled:opacity-30 disabled:cursor-not-allowed border border-sky-500/40 text-sky-300 rounded-lg text-sm font-medium transition-all"
+                        >
+                          <ExternalLink size={14} />
+                          Ver en Google Trends
+                        </button>
+                      </div>
+                      {trendsKeywords.length > 0 && (
+                        <p className="text-xs text-gray-600">
+                          Seleccionados: {trendsKeywords.join(', ')}{trendsCustom.trim() ? `, ${trendsCustom.trim()}` : ''} (máx. 5)
+                        </p>
+                      )}
+                      <CorporateInsight
+                        title="Tendencias y Vigilancia Cultural"
+                        description="Google Trends revela cómo las tendencias de búsqueda se alinean con tus hábitos de escucha. Las plataformas cruzan estos datos: si escuchas un artista justo cuando se vuelve tendencia, tu perfil se etiqueta como 'early adopter' — un segmento premium para anunciantes. Tu gusto musical no es solo tuyo: es un indicador de mercado."
+                      />
+                    </Card>
+                  </motion.div>
+                )}
+
                 {/* Resumen de valor comercial */}
                 <motion.div variants={fadeUp} className="md:col-span-2 lg:col-span-3">
                   <Card>
@@ -867,6 +1088,7 @@ export default function Dashboard({ data, onReset }: Props) {
       <div className="max-w-7xl mx-auto px-4 md:px-6 mt-10 md:mt-12 pt-6 border-t border-gray-800/50 text-center">
         <p className="text-xs text-gray-600 mb-1">Tus datos nunca abandonaron tu navegador. 100% local, 0% servidor.</p>
         <p className="text-xs text-gray-700">Algorithmic Mirror — {new Date().getFullYear()}</p>
+        <p className="text-xs text-gray-600 mt-2">Proyecto creado para la clase de <span className="text-gray-400 font-medium">Ética e Inteligencia Artificial</span></p>
       </div>
     </div>
   );
